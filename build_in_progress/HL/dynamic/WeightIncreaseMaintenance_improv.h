@@ -3,38 +3,6 @@
 #include <queue>
 #include <build_in_progress/HL/dynamic/PLL_dynamic.h>
 
-void SPREAD10(graph_v_of_v_idealID &instance_graph, vector<vector<two_hop_label_v1>> *L,
-			  std::vector<affected_label> &al1, std::vector<pair_label> *al2, ThreadPool &pool_dynamic, std::vector<std::future<int>> &results_dynamic)
-{
-
-	/*TO DO 2*/
-	for (const auto &item : al1)
-	{
-		int u = item.first, v = item.second;
-		weightTYPE du = item.dis;
-		results_dynamic.emplace_back(pool_dynamic.enqueue([u, v, du, L, al2, &instance_graph]()
-														  {
-        std::queue<std::pair<int, weightTYPE>> Queue;
-        Queue.push({u, du});
-        while (!Queue.empty()) {
-            auto [x, dx] = Queue.front();
-            Queue.pop();
-			auto [dis, index] = search_sorted_two_hop_label2((*L)[x], v);
-			if(index == -1)continue;
-            (*L)[x][v].distance = std::numeric_limits<weightTYPE>::infinity();  // Invalidate this label
-            al2->push_back(pair_label(x, v));  // Prepare for further spreading
-            for (auto &xn : instance_graph[x]) {
-				if(v > xn.first){
-					if (((*L)[xn.first][v].distance == instance_graph[x][xn.first].second + dx)) {
-                    	Queue.push({xn.first, dx + instance_graph[x][xn.first].second});
-                	}
-				}
-
-            }
-        }
-        return 1; }));
-	}
-}
 void SPREAD1(graph_v_of_v_idealID &instance_graph, vector<vector<two_hop_label_v1>> *L,
 			 std::vector<affected_label> &al1, std::vector<pair_label> *al2, ThreadPool &pool_dynamic, std::vector<std::future<int>> &results_dynamic)
 {
@@ -49,134 +17,84 @@ void SPREAD1(graph_v_of_v_idealID &instance_graph, vector<vector<two_hop_label_v
 		{
 			auto [x, d_x] = Q.front();
 			Q.pop();
-			(*L)[x][v].distance = std::numeric_limits<weightTYPE>::infinity();
+			auto temp = search_sorted_two_hop_label2((*L)[x], v);
+			if(temp.second == -1) {
+				insert_sorted_two_hop_label((*L)[x], v, MAX_VALUE);
+				temp = search_sorted_two_hop_label2((*L)[x], v);
+			}
+			(*L)[x][temp.second].distance = MAX_VALUE;
+			//(*L)[x][v].distance = MAX_VALUE;
 			al2->push_back(pair_label(x, v));
-			for (auto x_n : instance_graph[x])
+			for (auto &x_n : instance_graph[x])
 			{
-				double d_xn = d_x + x_n.second;
-				if (search_sorted_two_hop_label2((*L)[x_n.first], v).second != -1)
+				if (v < x_n.first)
 				{
-					Q.push({x_n.first, d_xn});
+					double d_xn = d_x + x_n.second;
+					if ((search_sorted_two_hop_label2((*L)[x_n.first], v).second != -1) && ((fabs(search_sorted_two_hop_label2((*L)[x_n.first], v).first - d_xn)) < 1e-9))
+					{
+						Q.push({x_n.first, d_xn});
+					}
+					else continue;
 				}
 			}
 		}
 	}
-
 	/*TO DO 2*/
 }
 
 void SPREAD2(graph_v_of_v_idealID &instance_graph, vector<vector<two_hop_label_v1>> *L, PPR_type *PPR,
 			 std::vector<pair_label> &al2, std::vector<affected_label> *al3, ThreadPool &pool_dynamic, std::vector<std::future<int>> &results_dynamic)
 {
-
-	/*TO DO 3*/
-	for (const auto &pair : al2)
-	{
-		auto task = [&instance_graph, L, PPR, al3, pair]()
-		{
-			int x = pair.first, y = pair.second;
-			for (auto &target : PPR[x][y])
-			{
-				// target.first和second分别代表什么?
-				weightTYPE min_distance = std::numeric_limits<weightTYPE>::infinity();
-				// int common_hub = -1;
-				if (target.first > x)
-				{
-					// Calculate the potential new shortest path through neighbors
-					for (auto &neighbor : instance_graph[x])
-					{
-						auto [dnew, index] = search_sorted_two_hop_label2((*L)[neighbor.first], target.first);
-						if (index == -1)
-							continue;
-						weightTYPE new_distance = dnew + instance_graph[x][neighbor.first].second;
-						if (new_distance < min_distance)
-						{
-							min_distance = new_distance;
-							// common_hub = neighbor.first;
-						}
-					}
-					auto [dis, hc] = graph_hash_of_mixed_weighted_two_hop_v1_extract_distance_no_reduc2(*L, x, target.first);
-					if (min_distance < dis)
-					{
-						al3->push_back(affected_label(x, target.first, min_distance));
-					}
-					else
-					{
-						(*PPR)[x][hc].second.push_back(target.first);
-						(*PPR)[target.first][hc].second.push_back(x);
-					}
-				}
-				if (x > target.first)
-				{
-					// Calculate the potential new shortest path through neighbors
-					for (auto &neighbor : target.second)
-					{
-						auto [dnew, index] = search_sorted_two_hop_label2((*L)[neighbor], x);
-						if (index == -1)
-							continue;
-						weightTYPE new_distance = dnew + instance_graph[target.first][neighbor].second;
-						// weightTYPE new_distance = (*L)[neighbor][x].distance + instance_graph[target.first][neighbor].second;
-						if (new_distance < min_distance)
-						{
-							min_distance = new_distance;
-							// common_hub = neighbor;
-						}
-					}
-					auto [dis, hc] = graph_hash_of_mixed_weighted_two_hop_v1_extract_distance_no_reduc2(*L, x, target.first);
-					if (min_distance < dis)
-					{
-						al3->push_back(affected_label(target.first, x, min_distance));
-					}
-					else
-					{
-						(*PPR)[target.first][hc].second.push_back(x);
-						(*PPR)[x][hc].second.push_back(target.first);
-					}
-				}
-			}
-			return 1;
-		};
-		results_dynamic.emplace_back(pool_dynamic.enqueue(task));
-	}
-}
-void SPREAD20(graph_v_of_v_idealID &instance_graph, vector<vector<two_hop_label_v1>> *L, PPR_type *PPR,
-			  std::vector<pair_label> &al2, std::vector<affected_label> *al3, ThreadPool &pool_dynamic, std::vector<std::future<int>> &results_dynamic)
-{
 	/*TO DO 3*/
 	for (auto &it : al2)
 	{ // it.first是x,it.second是y
-		int x = it.first;
-		int y = it.second;
-		auto temp = PPR_retrieve(*PPR, x, y);
-		PPR_binary_operations_insert(temp, y);
-		for (auto &t : temp)
+		auto temp = PPR_retrieve(*PPR, it.first, it.second);
+		
+		//我需要遍历temp并上it.second，但不改变原先的PPR
+		std::vector<int> temp2;
+		for (auto t : temp)
 		{
-			if (x < t)
+			temp2.push_back(t);
+		}
+		temp2.push_back(it.second);
+		for (auto t : temp2)
+		{
+			if (t < it.first)
 			{
 				double dis = MAX_VALUE;
-				for (auto &xn : instance_graph[x])
+				for (auto &xn : instance_graph[it.first])
 				{
-					double new_dis = search_sorted_two_hop_label((*L)[xn.first], t) + xn.second;
-					dis = min(dis, new_dis);
+					auto temp = search_sorted_two_hop_label2((*L)[xn.first], t);
+					double new_dis;
+					if(temp.second == -1) {
+						continue;
+					}
+					else new_dis = temp.first + xn.second;
+					dis = std::min(dis, new_dis);
 				}
-				if (dis <= graph_hash_of_mixed_weighted_two_hop_v1_extract_distance_no_reduc(*L, x, t))
+				if (dis < graph_hash_of_mixed_weighted_two_hop_v1_extract_distance_no_reduc(*L, it.first, t))
 				{
-					al3->push_back(affected_label(x, t, dis));
+					al3->push_back(affected_label(it.first, t, dis));
 				}
 				else
 				{
-					auto [_, hub_v] = graph_hash_of_mixed_weighted_two_hop_v1_extract_distance_no_reduc2(*L, x, t);
-					PPR_insert(*PPR, x, hub_v, t);
-					PPR_insert(*PPR, t, hub_v, x);
+					auto [_, hub_v] = graph_hash_of_mixed_weighted_two_hop_v1_extract_distance_no_reduc2(*L, it.first, t);
+					PPR_insert(*PPR, it.first, hub_v, t);
+					PPR_insert(*PPR, t, hub_v, it.first);
 				}
 			}
-			if (x > t)
+			if (it.first < t)
 			{
 				double dis = MAX_VALUE;
 				for (auto &tn : instance_graph[t])
 				{
-					double new_dis = search_sorted_two_hop_label((*L)[tn.first], it.first) + tn.second;
-					dis = min(dis, new_dis);
+					auto temp = search_sorted_two_hop_label2((*L)[tn.first], it.first);
+					double new_dis;
+					if(temp.second == -1) {
+						continue;
+					}
+					else new_dis = temp.first + tn.second;
+					dis = std::min(dis, new_dis);
 				}
 				if (graph_hash_of_mixed_weighted_two_hop_v1_extract_distance_no_reduc(*L, t, it.first) > dis)
 				{
@@ -185,13 +103,14 @@ void SPREAD20(graph_v_of_v_idealID &instance_graph, vector<vector<two_hop_label_
 				else
 				{
 					auto [_, hub_v] = graph_hash_of_mixed_weighted_two_hop_v1_extract_distance_no_reduc2(*L, t, it.first);
-					PPR_insert(*PPR, it.first, hub_v, t);
 					PPR_insert(*PPR, t, hub_v, it.first);
+					PPR_insert(*PPR, it.first, hub_v, t);
 				}
 			}
 		}
 	}
 }
+
 void SPREAD3(graph_v_of_v_idealID &instance_graph, vector<vector<two_hop_label_v1>> *L, PPR_type *PPR, std::vector<affected_label> &al3,
 			 ThreadPool &pool_dynamic, std::vector<std::future<int>> &results_dynamic)
 {
@@ -200,88 +119,84 @@ void SPREAD3(graph_v_of_v_idealID &instance_graph, vector<vector<two_hop_label_v
 		int u = al.first;
 		int v = al.second;
 		double d_u = al.dis;
-		auto query_result = graph_hash_of_mixed_weighted_two_hop_v1_extract_distance_no_reduc(*L, u, v);
+		double query_result = graph_hash_of_mixed_weighted_two_hop_v1_extract_distance_no_reduc(*L, u, v);
 		int common_hub = graph_hash_of_mixed_weighted_two_hop_v1_extract_distance_no_reduc2(*L, u, v).second;
 
 		if (query_result <= d_u)
 		{
-			(*PPR)[u][common_hub].second.push_back(v);
-			(*PPR)[v][common_hub].second.push_back(u);
+			PPR_insert(*PPR, u, common_hub, v);
+			PPR_insert(*PPR, v, common_hub, u);
 			continue;
 		}
-		std::vector<int> Dis(instance_graph.size(), -1);
+		std::vector<double> Dis(instance_graph.size(), -1);
 		Dis[u] = d_u;
-		std::queue<std::pair<double, int>> Q;
-		Q.push({d_u, u});
+		// Q为优先队列，存储(d_x, x)
 
-		while (!Q.empty())
+		boost::heap::fibonacci_heap<std::pair<double, int>, boost::heap::compare<std::greater<std::pair<double, int>>>> fh;
+		// std::priority_queue<std::pair<double, int>, std::vector<std::pair<double, int>>, std::greater<std::pair<double, int>>> Q;
+		std::unordered_map<int, boost::heap::fibonacci_heap<std::pair<double, int>, boost::heap::compare<std::greater<std::pair<double, int>>>>::handle_type> handles;
+		// Q.push({d_u, u});
+		auto handle = fh.push({d_u, u});
+		handles[u] = handle;
+
+		while (!fh.empty())
 		{
-			auto [d_x, x] = Q.front();
-			Q.pop();
+			auto [d_x, x] = fh.top();
+			fh.pop();
 
-			(*L)[x][v].distance = std::min(d_x, (*L)[x][v].distance);
+			//(*L)[x][v].distance = std::min(d_x, (*L)[x][v].distance);
+			auto temp = search_sorted_two_hop_label2((*L)[x], v);
+			if(temp.second == -1) {
+				insert_sorted_two_hop_label((*L)[x], v, MAX_VALUE);
+				temp = search_sorted_two_hop_label2((*L)[x], v);
+			}
+			(*L)[x][temp.second].distance = std::min(d_x, (*L)[x][temp.second].distance);
 
-			for (auto x_n : instance_graph[x])
+			for (auto &x_n : instance_graph[x])
 			{
-
-				if (Dis[x_n.first] == -1)
+				if (v < x_n.first)
 				{
-					Dis[x_n.first] = graph_hash_of_mixed_weighted_two_hop_v1_extract_distance_no_reduc(*L, x_n.first, u);
-				}
-				double w_xn_x = x_n.second;
-				if (Dis[x_n.first] > d_x + w_xn_x)
-				{
-					Dis[x_n.first] = d_x + w_xn_x;
-					Q.push({Dis[x_n.first], x_n.first});
-				}
-				else
-				{
-					(*PPR)[x_n.first][common_hub].second.push_back(v);
-					(*PPR)[v][common_hub].second.push_back(x_n.first);
+					if (Dis[x_n.first] == -1)
+					{
+						Dis[x_n.first] = graph_hash_of_mixed_weighted_two_hop_v1_extract_distance_no_reduc(*L, x_n.first, v);
+					}
+					double w_xn_x = x_n.second;
+					if ( Dis[x_n.first] > d_x + w_xn_x)
+					{
+						if(w_xn_x != MAX_VALUE) {
+							Dis[x_n.first] = d_x + w_xn_x;
+						}
+						else Dis[x_n.first] = MAX_VALUE;
+						if (handles.find(x_n.first) != handles.end())
+						{
+							//{Dis[x_n.first], x_n.first}是一个斐波那契堆里的元素
+							*(handles[x_n.first]) = std::make_pair(Dis[x_n.first], x_n.first);
+							fh.update(handles[x_n.first]);
+						}
+						else
+						{
+							handles[x_n.first] = fh.push({Dis[x_n.first], x_n.first});
+						}
+					}
+					else
+					{
+						common_hub = graph_hash_of_mixed_weighted_two_hop_v1_extract_distance_no_reduc2(*L, x_n.first, v).second;
+						PPR_insert(*PPR, x_n.first, common_hub, v);
+						PPR_insert(*PPR, v, common_hub, x_n.first);
+					}
 				}
 			}
 		}
 	}
-	/*TO DO 4*/
-}
-void SPREAD30(graph_v_of_v_idealID &instance_graph, vector<vector<two_hop_label_v1>> *L, PPR_type *PPR, std::vector<affected_label> &al3,
-			  ThreadPool &pool_dynamic, std::vector<std::future<int>> &results_dynamic)
-{
 
+	
 	/*TO DO 4*/
-	for (auto &affected : al3)
-	{
-		int u = affected.first, v = affected.second;
-		weightTYPE du = affected.dis;
-		results_dynamic.emplace_back(pool_dynamic.enqueue([u, v, du, L, PPR, &instance_graph]()
-														  {
-	        std::queue<std::pair<int, weightTYPE>> Q;
-	        Q.push({u, du});
-	        std::vector<weightTYPE> Dis(instance_graph.size(), std::numeric_limits<weightTYPE>::max());
-	        Dis[u] = du;
-
-	        while (!Q.empty()) {
-	            auto [x, dx] = Q.front();
-	            Q.pop();
-	            (*L)[x][v].distance = std::min((*L)[x][v].distance, dx);  // Update the label
-	            for (auto &neighbor : instance_graph[x]) {
-	                if (neighbor.first > v && Dis[neighbor.first] > dx + neighbor.second) {
-	                    Dis[neighbor.first] = dx + neighbor.second;
-	                    Q.push({neighbor.first, Dis[neighbor.first]});
-	                    // Update PPR if the condition matches
-	                    PPR->at(neighbor.first)[v].second.push_back(x);
-	                    PPR->at(x)[v].second.push_back(neighbor.first);
-	                }
-	            }
-	        }
-	        return 1; }));
-	}
 }
 
 void WeightIncreaseMaintenance_improv(graph_v_of_v_idealID &instance_graph, graph_hash_of_mixed_weighted_two_hop_case_info_v1 &mm, int v1, int v2, weightTYPE w_old, weightTYPE w_new,
 									  ThreadPool &pool_dynamic, std::vector<std::future<int>> &results_dynamic)
 {
-	// 这个函数用于处理边权增加的情况，即w_old < w_new，实现的功能是更新两个节点之间的所有两跳标签
+
 	std::vector<affected_label> al1, al3;
 	std::vector<pair_label> al2;
 
